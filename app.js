@@ -71,10 +71,10 @@ app.post('/api/auth/register', async (req, res) => {
     }
 
     // Check if user already exists in MongoDB
-    const existingUser = await User.findOne({ email });
-    if (existingUser) {
-      return res.status(400).json({ "status": "error", "message": "User already exists in MongoDB" });
-    }
+    // const existingUser = await User.findOne({ email });
+    // if (existingUser) {
+    //   return res.status(400).json({ "status": "error", "message": "User already exists in MongoDB" });
+    // }
 
     // Hash the password before saving
     const hashedPassword = await bcrypt.hash(password, 10);
@@ -90,13 +90,13 @@ app.post('/api/auth/register', async (req, res) => {
     const newUserPostgres = insertResult.rows[0];
 
     // Create new user and save to MongoDB
-    const newUser = new User({
-      username,
-      email,
-      password: hashedPassword // Store hashed password in MongoDB as well
-    });
+    // const newUser = new User({
+    //   username,
+    //   email,
+    //   password: hashedPassword // Store hashed password in MongoDB as well
+    // });
 
-    await newUser.save(); // Save the user to MongoDB
+    // await newUser.save(); // Save the user to MongoDB
 
     // Return a successful response
     return res.status(201).json({
@@ -296,7 +296,7 @@ io.on('connection', (socket) => {
 });
 
 // start server
-const PORT =  11000;
+const PORT = process.env.PORT;
 // server.listen(PORT, () => {
 //   console.log(`Server running on port ${PORT}`);
 // });
