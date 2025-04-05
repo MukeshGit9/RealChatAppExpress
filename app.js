@@ -123,10 +123,10 @@ app.post('/api/auth/login', async (req, res) => {
 
   try {
     // check user in mongodb
-    const user = await User.findOne({ email });
-    if (!user) {
-      return res.status(404).json({ "status": "error", "message": 'user not found in MongoDB' });
-    }
+    // const user = await User.findOne({ email });
+    // if (!user) {
+    //   return res.status(404).json({ "status": "error", "message": 'user not found in MongoDB' });
+    // }
 
     // check user in postgre
     const pgUserResult = await clientPg.query(`SELECT * FROM users WHERE email = $1`, [email])
@@ -135,14 +135,14 @@ app.post('/api/auth/login', async (req, res) => {
     }
     const pgUser = pgUserResult.rows[0];
 
-    const isPasswordCorrectMongoDB = await bcrypt.compare(password, user.password);
+    // const isPasswordCorrectMongoDB = await bcrypt.compare(password, user.password);
     const isPasswordCorrectPostgresDB = await bcrypt.compare(password, pgUser.password);
-    if (!isPasswordCorrectMongoDB && !isPasswordCorrectPostgresDB) {
+    if ( !isPasswordCorrectPostgresDB) {
       return res.status(401).json({ "status": "error", "message": 'incorrect password' });
     }
 
     //generate jwt token using mongodb
-    const token = jwt.sign({ email: user.email, username: user.username }, JWT_SECRET, { expiresIn: '1h' });
+    // const token = jwt.sign({ email: user.email, username: user.username }, JWT_SECRET, { expiresIn: '1h' });
 
     //generate jwt token using postgre
     const tokenPg = jwt.sign({ email: pgUser.email, username: pgUser.username }, JWT_SECRET, { expiresIn: '1h' });
@@ -195,7 +195,7 @@ app.get('/api/userprofile', authenticate, (req, res) => {
 
 //socket.io handling real time chat messages
 io.on('connection', (socket) => {
-  console.log('A user connected');
+  console.log('A user connected yes');
   let currentUser = null;
 
   //user authenticate via socket.io (using JWT token)
