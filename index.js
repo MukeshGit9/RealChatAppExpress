@@ -317,6 +317,8 @@ const PORT = process.env.PORT;
 
 // This will make the server accessible to other devices in the network
 
-server.listen(PORT, '0.0.0.0', () => {
-  console.log(`Server running on http://0.0.0.0:${PORT}`);
-});
+// server.listen(PORT, '0.0.0.0', () => {
+//   console.log(`Server running on http://0.0.0.0:${PORT}`);
+// });
+
+module.exports = index
