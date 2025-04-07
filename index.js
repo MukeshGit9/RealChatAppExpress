@@ -18,19 +18,19 @@ const server = http.createServer(app);
 //enable cors for frontend
 const corsOptions = {
   origin: ["http://localhost:5173"],
-  methods: ['GET', 'POST'],
+  methods: ['GET', 'POST','PUT','DELETE'],
   allowedHeaders: ['Content-Type']
 }
 //middlewares
 app.use(express.json()); // for parsing application/json
-// app.use(cors(corsOptions)); // enable cors for frontend requests
-app.use(cors()); // enable cors for frontend requests
+app.use(cors(corsOptions)); // enable cors for frontend requests
+// app.use(cors()); // enable cors for frontend requests
 
 //initialize cors options with socket.io
 const io = socketIo(server, {
   cors: {
     origin: ["http://localhost:5173"], // Allow only this origin
-    methods: ['GET', 'POST'],
+    methods: ['GET', 'POST','PUT','DELETE'],
   }
 });
 
@@ -191,6 +191,20 @@ app.get('/api/userprofile', authenticate, (req, res) => {
       "email": req.user.email
     }
   })
+})
+
+
+//Get all users
+app.get('/api/allusers',async (req, res)=>{
+  try {
+    const allUsers = await clientPg.query(`SELECT * from users `);
+    if(allUsers.rows.length === 0){
+      return res.status(404).json({"status":"error", "message":"No users found"})
+    }
+    res.status(200).json({"status":"success", "data":allUsers.rows})
+  } catch (error) {
+    res.status(500).json({"status":"error", "message":"Error fetching users"})
+  }
 })
 
 //socket.io handling real time chat messages
