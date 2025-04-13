@@ -1,38 +1,44 @@
-const express = require('express');
-const http = require('http');
-const socketIo = require('socket.io');
-const jwt = require('jsonwebtoken');
-const bcrypt = require('bcryptjs');
-const cors = require('cors');
-const connectDB = require('./Modules/db')
-const connectPgDB = require('./Modules/postgreDb')
-const clientPg = require('./postgreDB/clientPg')
-const pool = require('./postgreDB/pool')
-const { v4: uuidv4 } = require('uuid')
-require('dotenv').config();
+const express = require("express");
+const http = require("http");
+const uploadRoute = require("./upload");
+const socketIo = require("socket.io");
+const jwt = require("jsonwebtoken");
+const bcrypt = require("bcryptjs");
+const cors = require("cors");
+const connectDB = require("./Modules/db");
+const connectPgDB = require("./Modules/postgreDb");
+const clientPg = require("./postgreDB/clientPg");
+const pool = require("./postgreDB/pool");
+const { v4: uuidv4 } = require("uuid");
+require("dotenv").config();
 
 const app = express();
 const server = http.createServer(app);
 // const router = express.Router();
 
-//enable cors for frontend
+// enable cors for frontend
 const corsOptions = {
-  origin: ["http://localhost:5173"],
-  methods: ['GET', 'POST','PUT','DELETE'],
-  allowedHeaders: ['Content-Type']
-}
-//middlewares
-app.use(express.json()); // for parsing application/json
-app.use(cors(corsOptions)); // enable cors for frontend requests
-// app.use(cors()); // enable cors for frontend requests
+  origin: "http://localhost:5173",
+  methods: ["GET", "POST", "PUT", "DELETE"],
+  allowedHeaders: ["Content-Type"],
+};
 
-//initialize cors options with socket.io
+// app.use(cors(corsOptions)); // enable cors for frontend requests
+app.use(cors()); // enable cors for frontend requests
+
+// initialize cors options with socket.io
 const io = socketIo(server, {
   cors: {
-    origin: ["http://localhost:5173"], // Allow only this origin
-    methods: ['GET', 'POST','PUT','DELETE'],
-  }
+    origin: "http://localhost:5173",
+    // Allow only this origin
+    methods: ["GET", "POST", "PUT", "DELETE"],
+  },
 });
+
+// middlewares
+app.use(express.json()); // for parsing application/json
+app.use("/api", uploadRoute);
+app.use("/uploads", express.static("uploads"));
 
 //DB connection module
 connectDB();
@@ -40,8 +46,9 @@ connectPgDB();
 // clientPg();
 
 // const users = {};
-const User = require('./models/user'); //import user model
-const MessageSave = require('./models/messageSave'); //import messages model
+const User = require("./models/user"); //import user model
+const MessageSave = require("./models/messageSave"); //import messages model
+const FileSave = require("./models/files"); //import file model
 const activeUsers = {}; //track active users
 const messages = []; //store messages temprerely
 
@@ -49,25 +56,33 @@ const messages = []; //store messages temprerely
 const JWT_SECRET = process.env.JWT_SECRET;
 
 //default route
-app.get('/', (req, res) => {
-  res.send('Real Chat App, Using MongoDB Atlas Database and ExpressJS');
+app.get("/", (req, res) => {
+  res.send("Real Chat App, Using MongoDB Atlas Database and ExpressJS");
 });
 
 // User registration
-app.post('/api/auth/register', async (req, res) => {
+app.post("/api/auth/register", async (req, res) => {
   const { username, email, password } = req.body;
 
   // Check if all fields are required
   if (!username || !email || !password) {
-    return res.status(400).json({ "status": "error", "message": 'All fields are required' });
+    return res
+      .status(400)
+      .json({ status: "error", message: "All fields are required" });
   }
 
   try {
     // Check if user already exists in PostgreSQL
     // const result = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
-    const result = await clientPg.query('SELECT * FROM users WHERE email = $1', [email]);
+    const result = await clientPg.query(
+      "SELECT * FROM users WHERE email = $1",
+      [email]
+    );
     if (result.rows.length > 0) {
-      return res.status(400).json({ 'status': 'error', 'message': 'User already exists in PostgreSQL' });
+      return res.status(400).json({
+        status: "error",
+        message: "User already exists in PostgreSQL",
+      });
     }
 
     // Check if user already exists in MongoDB
@@ -80,12 +95,20 @@ app.post('/api/auth/register', async (req, res) => {
     const hashedPassword = await bcrypt.hash(password, 10);
 
     // Insert new user into PostgreSQL
-    const insertQuery = 'INSERT INTO users (username, email, password, created_at) VALUES ($1, $2, $3, DEFAULT) RETURNING *';
-    const insertResult = await clientPg.query(insertQuery, [username, email, hashedPassword]);
+    const insertQuery =
+      "INSERT INTO users (username, email, password, created_at) VALUES ($1, $2, $3, DEFAULT) RETURNING *";
+    const insertResult = await clientPg.query(insertQuery, [
+      username,
+      email,
+      hashedPassword,
+    ]);
 
     // Check if the insertion in PostgreSQL was successful
     if (insertResult.rows.length === 0) {
-      return res.status(500).json({ 'status': 'error', 'message': 'Failed to insert user into PostgreSQL' });
+      return res.status(500).json({
+        status: "error",
+        message: "Failed to insert user into PostgreSQL",
+      });
     }
     const newUserPostgres = insertResult.rows[0];
 
@@ -100,25 +123,24 @@ app.post('/api/auth/register', async (req, res) => {
 
     // Return a successful response
     return res.status(201).json({
-      "status": "success",
-      "message": "User registered successfully",
-      "user": {
-        "username": newUserPostgres.username,
-        "email": newUserPostgres.email
-      }
+      status: "success",
+      message: "User registered successfully",
+      user: {
+        username: newUserPostgres.username,
+        email: newUserPostgres.email,
+      },
     });
   } catch (err) {
     console.log("Error occurred:", err); // Log the error for debugging
     res.status(500).json({
-      "status": "error",
-      "message": "Error while registering user, please try again"
+      status: "error",
+      message: "Error while registering user, please try again",
     });
   }
 });
 
-
 //User login
-app.post('/api/auth/login', async (req, res) => {
+app.post("/api/auth/login", async (req, res) => {
   const { email, password } = req.body;
 
   try {
@@ -129,113 +151,134 @@ app.post('/api/auth/login', async (req, res) => {
     // }
 
     // check user in postgre
-    const pgUserResult = await clientPg.query(`SELECT * FROM users WHERE email = $1`, [email])
-    if(pgUserResult.rows.length === 0){
-      return res.status(404).json({'status':'error', 'message':'user not found in Postgres DB'})
+    const pgUserResult = await clientPg.query(
+      `SELECT * FROM users WHERE email = $1`,
+      [email]
+    );
+    if (pgUserResult.rows.length === 0) {
+      return res
+        .status(404)
+        .json({ status: "error", message: "user not found in Postgres DB" });
     }
     const pgUser = pgUserResult.rows[0];
 
     // const isPasswordCorrectMongoDB = await bcrypt.compare(password, user.password);
-    const isPasswordCorrectPostgresDB = await bcrypt.compare(password, pgUser.password);
-    if ( !isPasswordCorrectPostgresDB) {
-      return res.status(401).json({ "status": "error", "message": 'incorrect password' });
+    const isPasswordCorrectPostgresDB = await bcrypt.compare(
+      password,
+      pgUser.password
+    );
+    if (!isPasswordCorrectPostgresDB) {
+      return res
+        .status(401)
+        .json({ status: "error", message: "incorrect password" });
     }
 
     //generate jwt token using mongodb
     // const token = jwt.sign({ email: user.email, username: user.username }, JWT_SECRET, { expiresIn: '1h' });
 
     //generate jwt token using postgre
-    const tokenPg = jwt.sign({ email: pgUser.email, username: pgUser.username }, JWT_SECRET, { expiresIn: '1h' });
+    const tokenPg = jwt.sign(
+      { email: pgUser.email, username: pgUser.username },
+      JWT_SECRET,
+      { expiresIn: "1h" }
+    );
 
     res.json({
-      "status": "success",
-      "message": "Login Successful!",
-      "token": tokenPg,
-      "user": {
-        "username": pgUser.username,
-        "email": pgUser.email
-      }
-    });  //return token as a JSON response
+      status: "success",
+      message: "Login Successful!",
+      token: tokenPg,
+      user: {
+        username: pgUser.username,
+        email: pgUser.email,
+      },
+    }); //return token as a JSON response
   } catch (err) {
     console.log(err);
-    return res.status(500).json({ "status": "error", "message": 'Something wrong, Please try again' })
+    return res
+      .status(500)
+      .json({ status: "error", message: "Something wrong, Please try again" });
   }
-
 });
 
 //middleware to verify token and authenticate user
 const authenticate = (req, res, next) => {
-  const authHeader = req.headers['authorization']; //get the authorization header
-  const token = authHeader && authHeader.split(' ')[1]; //get the token from header
+  const authHeader = req.headers["authorization"]; //get the authorization header
+  const token = authHeader && authHeader.split(" ")[1]; //get the token from header
   if (!token) {
-    return res.status(401).json({ "status": "Error", "message": "Token Required" });
+    return res.status(401).json({ status: "Error", message: "Token Required" });
   }
 
   //verif JWT Token
   jwt.verify(token, JWT_SECRET, (err, user) => {
     if (err) {
-      return res.status(403).json({ "status": "Error", "message": "Invalide Token" });
+      return res
+        .status(403)
+        .json({ status: "Error", message: "Invalide Token" });
     }
     req.user = user;
     next();
-  })
-}
-
+  });
+};
 
 //user fprofile
-app.get('/api/userprofile', authenticate, (req, res) => {
+app.get("/api/userprofile", authenticate, (req, res) => {
   res.json({
-    "status": "success",
-    "user": {
-      "username": req.user.username,
-      "email": req.user.email
-    }
-  })
-})
-
+    status: "success",
+    user: {
+      username: req.user.username,
+      email: req.user.email,
+    },
+  });
+});
 
 //Get all users
-app.get('/api/allusers',async (req, res)=>{
+app.get("/api/allusers", async (req, res) => {
   try {
     const allUsers = await clientPg.query(`SELECT * from users `);
-    if(allUsers.rows.length === 0){
-      return res.status(404).json({"status":"error", "message":"No users found"})
+    if (allUsers.rows.length === 0) {
+      return res
+        .status(404)
+        .json({ status: "error", message: "No users found" });
     }
-    res.status(200).json({"status":"success", "data":allUsers.rows})
+    res.status(200).json({ status: "success", data: allUsers.rows });
   } catch (error) {
-    res.status(500).json({"status":"error", "message":"Error fetching users"})
+    res.status(500).json({ status: "error", message: "Error fetching users" });
   }
-})
+});
 
 //socket.io handling real time chat messages
-io.on('connection', (socket) => {
-  console.log('A user connected yes');
+io.on("connection", (socket) => {
+  console.log("A user connected yes");
   let currentUser = null;
 
-  //user authenticate via socket.io (using JWT token)
-  socket.on('authenticate', (token) => {
+  // user authenticate via socket.io (using JWT token)
+  socket.on("authenticate", (token) => {
     jwt.verify(token, JWT_SECRET, (err, user) => {
       if (err) {
-        socket.emit('unauthorized', { "status": "Error", "message": 'Authentication failed' });
+        socket.emit("unauthorized", {
+          status: "Error",
+          message: "Authentication failed",
+        });
         return;
       }
       currentUser = user;
-      console.log(currentUser)
+      console.log(currentUser);
       activeUsers[user.email] = socket.id;
-      socket.emit('auth_success', `Welcome ${user.username} ${user.email}`);
+      socket.emit("auth_success", `Welcome ${user.username} ${user.email}`);
       console.log(`${user.username} connected`);
     });
   });
 
   //handle incoming messages
-  socket.on('send_message', (message) => {
+  socket.on("send_message", (message) => {
     if (currentUser) {
       const messageId = uuidv4();
-      const timestamp = new Date().toISOString();
+      // const timestamp = new Date().toISOString();
+      const timestamp = new Date()
 
       const formattedMessage = {
-        status: 'success',
-        type: 'message',
+        status: "success",
+        type: "message",
         data: {
           messageId,
           senderName: currentUser.username,
@@ -244,8 +287,8 @@ io.on('connection', (socket) => {
           content: message.content,
           timestamp,
           messageType: "text",
-          status: "sent"
-        }
+          status: "sent",
+        },
       };
 
       //create new message document for mongodb
@@ -257,51 +300,155 @@ io.on('connection', (socket) => {
         content: message.content,
         timestamp,
         messageType: "text",
-        status: "sent"
-      })
+        status: "sent",
+      });
 
       try {
-        // message save in mongodb 
+        // message save in mongodb
         newMessageSave.save(); //method to save
-        io.emit('receive_message', { user: currentUser.username, formattedMessage });
-        console.log(`${currentUser.username} sent a message: ${message.content}`);
+        io.emit("receive_message", {
+          user: currentUser.username,
+          formattedMessage,
+        });
+        socket.emit("send_message_ack", {
+          status: "success",
+          message: "Message sent successfully!",
+        });
+        console.log(
+          `${currentUser.username} sent a message: ${message.content}`
+        );
       } catch (error) {
-        console.log('Error while saving messages to database', error)
+        console.log("Error while saving messages to database", error);
+        socket.emit("message_send_ack", {
+          status: "error",
+          message: "Error sending message",
+        });
       }
+    }
+  });
 
+  //handle file uploads
+  socket.on("upload_file", async (fileData) => {
+    if (currentUser) {
+      console.log(currentUser)
+      const fileId = uuidv4();
+      // const timestamp = new Date().toISOString();
+      const timestamp = new Date()
+      const {
+        fileName,
+        originalName,
+        fileMimeType,
+        fileUrl,
+        receivedId,
+        size,
+      } = fileData;
 
+      const fileMessage = {
+        status: "success",
+        type: "file",
+        data: {
+          messageId: fileId,
+          senderName: currentUser.username,
+          senderId: currentUser.email,
+          receiverId: receivedId,
+          originalName: originalName,
+          fileName: fileName,
+          mimeType: fileMimeType,
+          size: size,
+          fileUrl,
+          timestamp,
+          messageType: "file",
+          status: "sent",
+          content: "File uploaded",
+        },
+      };
+
+      //create new file document for mongodb
+      const newFileMessage = new FileSave({
+        messageId: fileId,
+        senderName: currentUser.username,
+        senderId: currentUser.email,
+        receiverId: receivedId,
+        originalName: originalName,
+        fileName: fileName,
+        mimeType: fileMimeType,
+        size: size,
+        fileUrl,
+        timestamp,
+        messageType: "file",
+        status: "sent",
+        content: "File uploaded",
+      });
+
+      try {
+        await newFileMessage.save();
+        io.emit("receive_file", { user: currentUser.username, fileMessage });
+        socket.emit("file_upload_ack", {
+          status: "success",
+          message: "File sent successfully!",
+        });
+        console.log(`${currentUser.username} uploaded a file: ${fileName}`);
+      } catch (error) {
+        console.log("Error while saving file to MongoDB database", error);
+        socket.emit("file_upload_ack", {
+          status: "error",
+          message: "Error saving file",
+        });
+      }
     }
   });
 
   //Route to get message for current user
-  app.get('/messages',async (req, res)=>{
-    const {userId} = req.query;
-    if(!userId){
-      return res.status(400).json({status:'error', message:"user id is required"})
+  app.get("/messages", async (req, res) => {
+    const { userId } = req.query;
+    if (!userId) {
+      return res
+        .status(400)
+        .json({ status: "error", message: "user id is required" });
     }
     try {
       const storedMessages = await MessageSave.find({
-        $or:[
-          {senderId:userId}, //get message where user is sender
-          {receiverId:'receiver_mail@example.com'}//get message where user is receiver
-        ]
-      }).sort({timestamp : 1}); //older first
-      res.json({status:'success', data:storedMessages})
+        $or: [
+          { senderId: userId }, //get message where user is sender
+          { receiverId: "receiver_mail@example.com" }, //get message where user is receiver
+        ],
+      }).sort({ timestamp: 1 }); //older first
+      res.json({ status: "success", data: storedMessages });
     } catch (error) {
-      console.log('error fetching messages', error)
-      res.status(500).json({status:'error', message:'Failed to fetch messages'})
+      console.log("error fetching messages", error);
+      res
+        .status(500)
+        .json({ status: "error", message: "Failed to fetch messages" });
+    }
+  });
+
+  //Route to get files for current user
+  app.get("/files", async(req, res)=>{
+    const {userId} = req.query;
+    if(!userId){
+      return res.status(400).json({status:"error", message:"user is is required"})
+    }
+    try{
+      const storedFiles = await FileSave.find({
+        $or:[
+          {senderId: userId},
+          {receiverId: "receiver_mail@example.com"},
+        ],
+      }).sort({timestamp : 1}) //older first
+      res.json({status:"success", data: storedFiles})
+    }catch(error){
+      console.log("error fetching files", error)
+      res.status(500).json({status:"error", message:"failed to fetch files"})
     }
   })
 
-
-
   //handle typing notification
-  socket.on('user_typing', (username) => {
-    socket.broadcast.emit('user_typing', username);  //notify other users
+  socket.on("user_typing", (username) => {
+    socket.broadcast.emit("user_typing", username); //notify other users
   });
 
   //handle user disconnection
-  socket.on('disconnect', () => {
+  socket.on("disconnect", () => {
     if (currentUser) {
       delete activeUsers[currentUser.email];
       console.log(`${currentUser.username} disconnected`);
@@ -310,15 +457,13 @@ io.on('connection', (socket) => {
 });
 
 // start server
-const PORT = process.env.PORT;
+const PORT = process.env.PORT || 11000;
 // server.listen(PORT, () => {
 //   console.log(`Server running on port ${PORT}`);
 // });
 
 // This will make the server accessible to other devices in the network
 
-// server.listen(PORT, '0.0.0.0', () => {
-//   console.log(`Server running on http://0.0.0.0:${PORT}`);
-// });
-
-module.exports = index
+server.listen(PORT, "0.0.0.0", () => {
+  console.log(`Server running on http://0.0.0.0:${PORT}`);
+});
