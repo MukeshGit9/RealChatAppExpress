@@ -16,7 +16,7 @@ const app = express();
 const server = http.createServer(app);
 // const router = express.Router();
 
-// enable cors for frontend
+// enable cors for frontend----------------------------------------------------------------CORS
 const corsOptions = {
   origin: "http://localhost:5173",
   methods: ["GET", "POST", "PUT", "DELETE"],
@@ -35,16 +35,17 @@ const io = socketIo(server, {
   },
 });
 
-// middlewares
+// middlewares----------------------------------------------------------------------------------MIDDLEWARES
 app.use(express.json()); // for parsing application/json
 app.use("/api", uploadRoute);
 app.use("/uploads", express.static("uploads"));
 
-//DB connection module
+//DB connection module-----------------------------------------------------------------------DB CONNECTION
 connectDB();
 connectPgDB();
 // clientPg();
 
+// schemas------------------------------------------------------------------------SCHEMA
 // const users = {};
 const User = require("./models/user"); //import user model
 const MessageSave = require("./models/messageSave"); //import messages model
@@ -52,15 +53,15 @@ const FileSave = require("./models/files"); //import file model
 const activeUsers = {}; //track active users
 const messages = []; //store messages temprerely
 
-//jwt secret
+//jwt secret----------------------------------------------------------------------------JWK
 const JWT_SECRET = process.env.JWT_SECRET;
 
-//default route
+//default route---------------------------------------------------------------------------DEFAULT
 app.get("/", (req, res) => {
   res.send("Real Chat App, Using MongoDB Atlas Database and ExpressJS");
 });
 
-// User registration
+// User registration---------------------------------------------------------------------REGISTRATION
 app.post("/api/auth/register", async (req, res) => {
   const { username, email, password } = req.body;
 
@@ -139,7 +140,7 @@ app.post("/api/auth/register", async (req, res) => {
   }
 });
 
-//User login
+//User login------------------------------------------------------------------------------------LOGIN
 app.post("/api/auth/login", async (req, res) => {
   const { email, password } = req.body;
 
@@ -200,7 +201,7 @@ app.post("/api/auth/login", async (req, res) => {
   }
 });
 
-//middleware to verify token and authenticate user
+//middleware to verify token and authenticate user---------------------------------------------VERIFY TOKEN
 const authenticate = (req, res, next) => {
   const authHeader = req.headers["authorization"]; //get the authorization header
   const token = authHeader && authHeader.split(" ")[1]; //get the token from header
@@ -220,7 +221,7 @@ const authenticate = (req, res, next) => {
   });
 };
 
-//user fprofile
+//user profile--------------------------------------------------------------------------------PROFILE
 app.get("/api/userprofile", authenticate, (req, res) => {
   res.json({
     status: "success",
@@ -231,7 +232,7 @@ app.get("/api/userprofile", authenticate, (req, res) => {
   });
 });
 
-//Get all users
+//Get all users--------------------------------------------------------------------------------ALL USERS
 app.get("/api/allusers", async (req, res) => {
   try {
     const allUsers = await clientPg.query(`SELECT * from users `);
@@ -246,12 +247,12 @@ app.get("/api/allusers", async (req, res) => {
   }
 });
 
-//socket.io handling real time chat messages
+//socket.io handling real time chat messages----------------------------------------------------HANDLING MESSAGES
 io.on("connection", (socket) => {
   console.log("A user connected yes");
   let currentUser = null;
 
-  // user authenticate via socket.io (using JWT token)
+  // user authenticate via socket.io (using JWT token)---------------------Auth via socket.io
   socket.on("authenticate", (token) => {
     jwt.verify(token, JWT_SECRET, (err, user) => {
       if (err) {
@@ -269,12 +270,12 @@ io.on("connection", (socket) => {
     });
   });
 
-  //handle incoming messages
+  //handle incoming messages------------------------------------------------------------------INCOMING MESSAGES
   socket.on("send_message", (message) => {
     if (currentUser) {
       const messageId = uuidv4();
       // const timestamp = new Date().toISOString();
-      const timestamp = new Date()
+      const timestamp = new Date();
 
       const formattedMessage = {
         status: "success",
@@ -327,13 +328,13 @@ io.on("connection", (socket) => {
     }
   });
 
-  //handle file uploads
+  //handle file uploads-------------------------------------------------------------------------FILE UPLOAD
   socket.on("upload_file", async (fileData) => {
     if (currentUser) {
-      console.log(currentUser)
+      console.log(currentUser);
       const fileId = uuidv4();
       // const timestamp = new Date().toISOString();
-      const timestamp = new Date()
+      const timestamp = new Date();
       const {
         fileName,
         originalName,
@@ -398,7 +399,7 @@ io.on("connection", (socket) => {
     }
   });
 
-  //Route to get message for current user
+  //Route to get message for current user-----------------------------------------------------MESSAGE FOR CURRENT USER
   app.get("/messages", async (req, res) => {
     const { userId } = req.query;
     if (!userId) {
@@ -422,41 +423,97 @@ io.on("connection", (socket) => {
     }
   });
 
-  //Route to get files for current user
-  app.get("/files", async(req, res)=>{
-    const {userId} = req.query;
-    if(!userId){
-      return res.status(400).json({status:"error", message:"user is is required"})
+  //Route to get files for current user----------------------------------------------------------FILES FOR CURRENT USER
+  app.get("/files", async (req, res) => {
+    const { userId } = req.query;
+    if (!userId) {
+      return res
+        .status(400)
+        .json({ status: "error", message: "user is is required" });
     }
-    try{
+    try {
       const storedFiles = await FileSave.find({
-        $or:[
-          {senderId: userId},
-          {receiverId: "receiver_mail@example.com"},
+        $or: [
+          { senderId: userId },
+          { receiverId: "receiver_mail@example.com" },
         ],
-      }).sort({timestamp : 1}) //older first
-      res.json({status:"success", data: storedFiles})
-    }catch(error){
-      console.log("error fetching files", error)
-      res.status(500).json({status:"error", message:"failed to fetch files"})
+      }).sort({ timestamp: 1 }); //older first
+      res.json({ status: "success", data: storedFiles });
+    } catch (error) {
+      console.log("error fetching files", error);
+      res
+        .status(500)
+        .json({ status: "error", message: "failed to fetch files" });
     }
-  })
+  });
 
-  //handle typing notification
+  //handle typing notification----------------------------------------------------------------------TYPING
   socket.on("user_typing", (username) => {
     socket.broadcast.emit("user_typing", username); //notify other users
   });
 
-  //handle user disconnection
+  //handle user disconnection------------------------------------------------------------------------DISCONNECT
   socket.on("disconnect", () => {
     if (currentUser) {
       delete activeUsers[currentUser.email];
       console.log(`${currentUser.username} disconnected`);
     }
   });
+
+  // delete messages---------------------------------------------------------------------------DELETE MESSAGE
+  socket.on("delete_message", async ({ messageId, senderId }) => {
+    try {
+      // try deleting messages
+      const message = await MessageSave.findOne({ messageId });
+      if (message) {
+        if (message.senderId !== senderId) {
+          return socket.emit("delete_ack", {
+            status: "error",
+            message: "Unauthorized to delete this message",
+          });
+        }
+        await message.deleteOne({ messageId });
+        io.emit("message_deleted", { messageId });
+        return socket.emit("delete_ack", {
+          status: "success",
+          message: "Text message deleted",
+        });
+      }
+
+      // try deleting files
+      const file = await FileSave.findOne({ messageId });
+      if (file) {
+        if (file.senderId !== senderId) {
+          return socket.emit("Delete_ack", {
+            status: "error",
+            message: "Unauthorized to delete this file",
+          });
+        }
+
+        await FileSave.deleteOne({ messageId });
+        io.emit("message_deleted", { messageId });
+        return socket.emit("delete_ack", {
+          status: "success",
+          message: "File message deleted",
+        });
+      }
+
+      // if no message found
+      socket.emit("delete_ack", {
+        status: "error",
+        message: "Message not found",
+      });
+    } catch (error) {
+      console.log("Delete error", error);
+      socket.emit("delete_ack", {
+        status: "error",
+        message: "Server error during message deletion",
+      });
+    }
+  });
 });
 
-// start server
+// start server------------------------------------------------------------------------------------SERVER START
 const PORT = process.env.PORT || 11000;
 // server.listen(PORT, () => {
 //   console.log(`Server running on port ${PORT}`);
