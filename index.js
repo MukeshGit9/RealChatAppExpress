@@ -315,6 +315,7 @@ io.on("connection", (socket) => {
           status: "success",
           message: "Message sent successfully!",
         });
+        socket.emit("message_status_update", { messageId, status: "sent" });
         console.log(
           `${currentUser.username} sent a message: ${message.content}`
         );
@@ -388,6 +389,7 @@ io.on("connection", (socket) => {
           status: "success",
           message: "File sent successfully!",
         });
+        socket.emit("message_status_update", { fileId, status: "sent" });
         console.log(`${currentUser.username} uploaded a file: ${fileName}`);
       } catch (error) {
         console.log("Error while saving file to MongoDB database", error);
@@ -511,6 +513,28 @@ io.on("connection", (socket) => {
       });
     }
   });
+
+  // message status-------------------------------------------------------------------------READ, delivered, SEEN STATUS
+  // Mark message as read
+  socket.on("mark_as_read", async (messageId) => {
+    await MessageSave.updateOne({ messageId }, { status: "read" });
+    await FileSave.updateOne({ messageId }, { status: "read" });
+    io.emit("message_status_update", { messageId, status: "read" });
+  });
+
+  // Mark message as delivered (on view)
+  socket.on("mark_as_delivered", async (messageId) => {
+    await MessageSave.updateOne({ messageId }, { status: "delivered" });
+    await FileSave.updateOne({ messageId }, { status: "read" });
+    io.emit("message_status_update", { messageId, status: "delivered" });
+  });
+
+  // Mark as read when user opens chat
+  socket.on("mark_as_read", async ({ messageId }) => {
+    await MessageSave.updateOne({ messageId }, { status: "read" });
+    await FileSave.updateOne({ messageId }, { status: "read" });
+    io.emit("message_status_update", { messageId, status: "read" });
+  });
 });
 
 // start server------------------------------------------------------------------------------------SERVER START
@@ -521,6 +545,6 @@ const PORT = process.env.PORT || 11000;
 
 // This will make the server accessible to other devices in the network
 
-server.listen(PORT, "0.0.0.0", () => {
-  console.log(`Server running on http://0.0.0.0:${PORT}`);
+server.listen(PORT, "192.168.0.7", () => {
+  console.log(`Server running on http://192.168.0.7:${PORT}`);
 });
