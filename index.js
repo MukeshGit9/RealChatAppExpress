@@ -16,6 +16,8 @@ const app = express();
 const server = http.createServer(app);
 // const router = express.Router();
 
+const BASE_URL = process.env.BASE_URL_SERVER;
+
 // enable cors for frontend----------------------------------------------------------------CORS
 const corsOptions = {
   origin: "http://localhost:5173",
@@ -249,12 +251,14 @@ app.get("/api/allusers", async (req, res) => {
 
 //socket.io handling real time chat messages----------------------------------------------------HANDLING MESSAGES
 io.on("connection", (socket) => {
-  console.log("A user connected yes");
+  console.log("A user connected with Socket Successfuly!!", socket.id);
   let currentUser = null;
 
   // user authenticate via socket.io (using JWT token)---------------------Auth via socket.io
-  socket.on("authenticate", (token) => {
-    jwt.verify(token, JWT_SECRET, (err, user) => {
+  socket.on("authenticate", async (token) => {
+    console.log("Authenticate event received with token:", token);
+
+    jwt.verify(token, JWT_SECRET, async (err, user) => {
       if (err) {
         socket.emit("unauthorized", {
           status: "Error",
@@ -262,16 +266,68 @@ io.on("connection", (socket) => {
         });
         return;
       }
+
       currentUser = user;
-      console.log(currentUser);
-      activeUsers[user.email] = socket.id;
-      socket.emit("auth_success", `Welcome ${user.username} ${user.email}`);
-      console.log(`${user.username} connected`);
+      const userId = user.email;
+      activeUsers[userId] = socket.id;
+
+      console.log(`User ${userId} is connected with socket ${socket.id}`);
+      socket.emit("auth_success", user.username, userId);
+      console.log("active users auth", activeUsers);
+
+      try {
+        // ✅ ONLY fetch undelivered text messages
+        const missedMessages = await MessageSave.find({
+          receiverId: userId,
+          status: "sent",
+        });
+
+        missedMessages.forEach((msg) => {
+          socket.emit("receive_message", {
+            user: msg.senderName,
+            formattedMessage: {
+              status: "success",
+              type: "message",
+              data: msg,
+            },
+          });
+        });
+
+        // ✅ ONLY fetch undelivered file messages
+        const missedFiles = await FileSave.find({
+          receiverId: userId,
+          status: "sent",
+        });
+
+        missedFiles.forEach((file) => {
+          socket.emit("receive_file", {
+            user: file.senderName,
+            fileMessage: {
+              status: "success",
+              type: "file",
+              data: file,
+            },
+          });
+        });
+
+        // ✅ Mark as delivered
+        await MessageSave.updateMany(
+          { receiverId: userId, status: "sent" },
+          { $set: { status: "delivered" } }
+        );
+
+        await FileSave.updateMany(
+          { receiverId: userId, status: "sent" },
+          { $set: { status: "delivered" } }
+        );
+      } catch (err) {
+        console.log("Error fetching missed messages:", err);
+      }
     });
   });
 
   //handle incoming messages------------------------------------------------------------------INCOMING MESSAGES
-  socket.on("send_message", (message) => {
+  socket.on("send_message", async (message) => {
     if (currentUser) {
       const messageId = uuidv4();
       // const timestamp = new Date().toISOString();
@@ -304,21 +360,50 @@ io.on("connection", (socket) => {
         status: "sent",
       });
 
+      console.log("active users message", activeUsers);
+
+      console.log("Incoming message payload:", message);
+      if (!message.receivedId) {
+        console.log("Error: receivedId is missing from the message.");
+        return;
+      }
+
       try {
         // message save in mongodb
-        newMessageSave.save(); //method to save
-        io.emit("receive_message", {
+        await newMessageSave.save(); //method to save
+
+        // ✅ Emit to sender (so it appears instantly)
+        socket.emit("receive_message", {
           user: currentUser.username,
           formattedMessage,
         });
-        socket.emit("send_message_ack", {
-          status: "success",
-          message: "Message sent successfully!",
-        });
-        socket.emit("message_status_update", { messageId, status: "sent" });
-        console.log(
-          `${currentUser.username} sent a message: ${message.content}`
-        );
+
+        const receiverSocketId = activeUsers[message.receivedId];
+        const senderSocketId = activeUsers[currentUser.email];
+
+        console.log("Receever id is : ", receiverSocketId);
+        if (receiverSocketId) {
+          io.to(receiverSocketId).emit("receive_message", {
+            user: currentUser.username,
+            formattedMessage,
+          });
+
+          // send message to sender when
+          // io.to(senderSocketId).emit("receive_message", {
+          //   user: currentUser.username,
+          //   formattedMessage,
+          // });
+          socket.to(receiverSocketId).emit("send_message_ack", {
+            status: "success",
+            message: "Message sent successfully!",
+          });
+          socket
+            .to(receiverSocketId)
+            .emit("message_status_update", { messageId, status: "sent" });
+          console.log(
+            `${currentUser.username} sent a message: ${message.content}`
+          );
+        }
       } catch (error) {
         console.log("Error while saving messages to database", error);
         socket.emit("message_send_ack", {
@@ -382,15 +467,45 @@ io.on("connection", (socket) => {
         content: "File uploaded",
       });
 
+      console.log("Incoming message payload:", fileData);
+      if (!fileData.receivedId) {
+        console.log("Error: receivedId is missing from the file data.");
+        return;
+      }
+
       try {
         await newFileMessage.save();
-        io.emit("receive_file", { user: currentUser.username, fileMessage });
-        socket.emit("file_upload_ack", {
-          status: "success",
-          message: "File sent successfully!",
+
+        const receiverSocketId = activeUsers[receivedId];
+        const senderSocketId = activeUsers[currentUser.email];
+        console.log("Receever id is : ", receiverSocketId);
+
+        // ✅ Emit to sender (so it appears instantly)
+        socket.emit("receive_file", {
+          user: currentUser.username,
+          fileMessage,
         });
-        socket.emit("message_status_update", { fileId, status: "sent" });
-        console.log(`${currentUser.username} uploaded a file: ${fileName}`);
+
+        if (receiverSocketId) {
+          io.to(receiverSocketId).emit("receive_file", {
+            user: currentUser.username,
+            fileMessage,
+          });
+
+          // io.to(senderSocketId).emit("receive_file", {
+          //   user: currentUser.username,
+          //   fileMessage,
+          // });
+
+          socket.to(receiverSocketId).emit("file_upload_ack", {
+            status: "success",
+            message: "File sent successfully!",
+          });
+          socket
+            .to(receiverSocketId)
+            .emit("message_status_update", { fileId, status: "sent" });
+          console.log(`${currentUser.username} uploaded a file: ${fileName}`);
+        }
       } catch (error) {
         console.log("Error while saving file to MongoDB database", error);
         socket.emit("file_upload_ack", {
@@ -403,7 +518,7 @@ io.on("connection", (socket) => {
 
   //Route to get message for current user-----------------------------------------------------MESSAGE FOR CURRENT USER
   app.get("/messages", async (req, res) => {
-    const { userId } = req.query;
+    const { userId, receiveId } = req.query;
     if (!userId) {
       return res
         .status(400)
@@ -412,8 +527,9 @@ io.on("connection", (socket) => {
     try {
       const storedMessages = await MessageSave.find({
         $or: [
-          { senderId: userId }, //get message where user is sender
-          { receiverId: "receiver_mail@example.com" }, //get message where user is receiver
+          { senderId: userId, receiverId: receiveId }, //get message where user is sender
+          // { receiverId: "receiver_mail@example.com" }, //get message where user is receiver
+          { senderId: receiveId, receiverId: userId }, //get message where user is receiver
         ],
       }).sort({ timestamp: 1 }); //older first
       res.json({ status: "success", data: storedMessages });
@@ -427,7 +543,7 @@ io.on("connection", (socket) => {
 
   //Route to get files for current user----------------------------------------------------------FILES FOR CURRENT USER
   app.get("/files", async (req, res) => {
-    const { userId } = req.query;
+    const { userId, receiveId } = req.query;
     if (!userId) {
       return res
         .status(400)
@@ -436,8 +552,8 @@ io.on("connection", (socket) => {
     try {
       const storedFiles = await FileSave.find({
         $or: [
-          { senderId: userId },
-          { receiverId: "receiver_mail@example.com" },
+          { senderId: userId, receiverId: receiveId },
+          { senderId: receiveId, receiverId: userId },
         ],
       }).sort({ timestamp: 1 }); //older first
       res.json({ status: "success", data: storedFiles });
@@ -452,14 +568,6 @@ io.on("connection", (socket) => {
   //handle typing notification----------------------------------------------------------------------TYPING
   socket.on("user_typing", (username) => {
     socket.broadcast.emit("user_typing", username); //notify other users
-  });
-
-  //handle user disconnection------------------------------------------------------------------------DISCONNECT
-  socket.on("disconnect", () => {
-    if (currentUser) {
-      delete activeUsers[currentUser.email];
-      console.log(`${currentUser.username} disconnected`);
-    }
   });
 
   // delete messages---------------------------------------------------------------------------DELETE MESSAGE
@@ -535,6 +643,32 @@ io.on("connection", (socket) => {
     await FileSave.updateOne({ messageId }, { status: "read" });
     io.emit("message_status_update", { messageId, status: "read" });
   });
+
+  // handling calls------------------------------------------------------------------------------HANDLE VIDEO CALLS
+  socket.on("join", (userId) => {
+    socket.join(userId);
+    console.log(`User ${userId} joined their room`);
+  });
+
+  socket.on("call_user", ({ to, from, signal, name }) => {
+    io.to(to).emit("incoming_call", { from, signal, name });
+  });
+
+  socket.on("answer_call", ({ to, signal }) => {
+    io.to(to).emit("call_accepted", { signal });
+  });
+
+  socket.on("end_call", ({ to }) => {
+    io.to(to).emit("call_ended");
+  });
+
+  //handle user disconnection------------------------------------------------------------------------DISCONNECT
+  socket.on("disconnect", () => {
+    if (currentUser && activeUsers[currentUser.email]) {
+      delete activeUsers[currentUser.email];
+      console.log(`${currentUser.username} disconnected (${socket.id})`);
+    }
+  });
 });
 
 // start server------------------------------------------------------------------------------------SERVER START
@@ -545,6 +679,6 @@ const PORT = process.env.PORT || 11000;
 
 // This will make the server accessible to other devices in the network
 
-server.listen(PORT, "192.168.0.7", () => {
-  console.log(`Server running on http://192.168.0.7:${PORT}`);
+server.listen(PORT, `192.168.0.5`, () => {
+  console.log(`Server running on ${BASE_URL}`);
 });
