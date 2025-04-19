@@ -53,6 +53,7 @@ const User = require("./models/user"); //import user model
 const MessageSave = require("./models/messageSave"); //import messages model
 const FileSave = require("./models/files"); //import file model
 const activeUsers = {}; //track active users
+const callUsers = {};
 const messages = []; //store messages temprerely
 
 //jwt secret----------------------------------------------------------------------------JWK
@@ -645,21 +646,50 @@ io.on("connection", (socket) => {
   });
 
   // handling calls------------------------------------------------------------------------------HANDLE VIDEO CALLS
-  socket.on("join", (userId) => {
-    socket.join(userId);
-    console.log(`User ${userId} joined their room`);
+  // Register user by email
+  // socket.on("add_user", (email) => {
+  //   activeUsers[email] = socket.id;
+  //   console.log("User registered to call:", email, socket.id);
+  // });
+
+  socket.on("call_user", ({ to, from, offer }) => {
+    const receiverSocketId = activeUsers[to];
+    console.log("Attempting to call:", to, "Socket:", receiverSocketId);
+    console.log(" call from:", from);
+    console.log("Active Users List:", activeUsers);
+    if (receiverSocketId) {
+      io.to(receiverSocketId).emit("incoming_call", { from, offer });
+      callUsers[from] = to;
+      callUsers[to] = from;
+    }
   });
 
-  socket.on("call_user", ({ to, from, signal, name }) => {
-    io.to(to).emit("incoming_call", { from, signal, name });
+  socket.on("answer_call", ({ to, answer }) => {
+    const receiverSocketId = activeUsers[to];
+    if (receiverSocketId) {
+      io.to(receiverSocketId).emit("call_answered", { answer });
+    }
   });
 
-  socket.on("answer_call", ({ to, signal }) => {
-    io.to(to).emit("call_accepted", { signal });
+  socket.on("ice_candidate", ({ to, candidate }) => {
+    const receiverSocketId = activeUsers[to];
+    if (receiverSocketId) {
+      io.to(receiverSocketId).emit("ice_candidate", { candidate });
+    }
+  });
+
+  socket.on("decline_call", ({ to }) => {
+    const receiverSocketId = activeUsers[to];
+    if (receiverSocketId) {
+      io.to(receiverSocketId).emit("call_declined");
+    }
   });
 
   socket.on("end_call", ({ to }) => {
-    io.to(to).emit("call_ended");
+    const receiverSocketId = activeUsers[to];
+    if (receiverSocketId) {
+      io.to(receiverSocketId).emit("end_call");
+    }
   });
 
   //handle user disconnection------------------------------------------------------------------------DISCONNECT
@@ -679,6 +709,6 @@ const PORT = process.env.PORT || 11000;
 
 // This will make the server accessible to other devices in the network
 
-server.listen(PORT, `192.168.0.5`, () => {
+server.listen(PORT, `0.0.0.0`, () => {
   console.log(`Server running on ${BASE_URL}`);
 });
