@@ -237,8 +237,9 @@ app.get("/api/userprofile", authenticate, (req, res) => {
 
 //Get all users--------------------------------------------------------------------------------ALL USERS
 app.get("/api/allusers", async (req, res) => {
+  const {userEmail} = req.query;
   try {
-    const allUsers = await clientPg.query(`SELECT * from users `);
+    const allUsers = await clientPg.query(`SELECT * from users WHERE email=$1 `,[userEmail]);
     if (allUsers.rows.length === 0) {
       return res
         .status(404)
@@ -709,6 +710,6 @@ const PORT = process.env.PORT || 11000;
 
 // This will make the server accessible to other devices in the network
 
-server.listen(PORT, `0.0.0.0`, () => {
+server.listen(PORT, `192.168.0.20`, () => {
   console.log(`Server running on ${BASE_URL}`);
 });
